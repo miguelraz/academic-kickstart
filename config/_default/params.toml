@@ -44,7 +44,7 @@ local_business_type = ""
 org_name = "BioJulia"
 
 # Description for social sharing and search engines. If undefined, superuser role is used in place.
-description = ""
+description = "The bioinformatics infrastructure for the julia programming language."
 
 ############################
 ## Site Features
