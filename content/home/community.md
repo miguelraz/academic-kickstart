@@ -14,7 +14,7 @@ respects these standards.
 We use GitHub for the development of BioJulia itself. GitHub is where you will
 find our source code, tracked issues, and the pull-requests. The discussions
 there should be on topic and technical. For support and user questions, please
-use the [Forum](#Forum) or [Chat](#Chat) channels.
+use the [Forum](#Forum) or [Chat](#Chat) channels below.
 
 ### Forum
 

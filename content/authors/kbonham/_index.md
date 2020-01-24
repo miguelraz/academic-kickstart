@@ -1,43 +1,42 @@
 ---
 # Display name
-name: Ben J. Ward
+name: Kevin Bonham
 
 # Username (this should match the folder name)
 authors:
-- admin
+- kbonham
 
 # Is this the primary user of the site?
-superuser: true
+superuser: false
 
 # Role/position
-role: BioJulia Co-Founder & Developer
+role: BioJulia Developer
 
 # Organizations/Affiliations
 organizations:
-- name: The Earlham Institute
-  url: "http://www.earlham.ac.uk"
+- name: Harvard University
+  url: ""
+- name: The Broad Institute
+  url: ""
 
 # Short bio (displayed in user profile at end of posts)
-bio: My research interests include distributed robotics, mobile computing and programmable matter.
+bio: Microbiologist and immunologist teaching and researching at Harvard University and the Broad Institute"
 
 interests:
-- Evolutionary Genetics
-- Genome Assembly
+- Microbial Communities
+- Microbiomes
 - Retro Computing
-- Archery
-- Tabletop gaming
+- Computational Biology
+- Immunology
 
-education:
-  courses:
-  - course: PhD in Evolutionary Genetics
-    institution: University of East Anglia
-    year: 2016
-  - course: MSc in Molecular Microbiology
-    institution: The University of Bath
-    year: 2012
-  - course: BSc(Hons) in Biology
-    institution: Bath Spa University
-    year: 2011
+#education:
+#  courses:
+#  - course: PhD in Immunology
+#    institution: Harvard University
+#    year: 2014
+#  - course: BSc in Biochemistry and Cell Biology
+#    institution: University of California, San Diego
+#    year: 2006
 
 # Social/Academic Networking
 # For available icons, see: https://sourcethemes.com/academic/docs/page-builder/#icons
@@ -46,16 +45,16 @@ education:
 social:
 - icon: envelope
   icon_pack: fas
-  link: 'mailto:benjward@protonmail.com'  # For a direct email link, use "mailto:test@example.org".
-#- icon: twitter
-#  icon_pack: fab
-#  link: https://twitter.com/GeorgeCushen
+  link: 'mailto:kbonham@broadinstitute.org'  # For a direct email link, use "mailto:test@example.org".
+- icon: twitter
+  icon_pack: fab
+  link: https://twitter.com/Kevbonham
 #- icon: google-scholar
 #  icon_pack: ai
 #  link: https://scholar.google.co.uk/citations?user=sIwtMXoAAAAJ
 - icon: github
   icon_pack: fab
-  link: https://github.com/BenJWard
+  link: https://github.com/kescobo
 # Link to a PDF of your resume/CV from the About widget.
 # To enable, copy your resume/CV to `static/files/cv.pdf` and uncomment the lines below.
 # - icon: cv
@@ -63,13 +62,16 @@ social:
 #   link: files/cv.pdf
 
 # Enter email to display Gravatar (if Gravatar enabled in Config)
-email: "benjward@protonmail.com"
+email: kbonham@broadinstitute.org
 
 # Organizational groups that you belong to (for People widget)
 #   Set this to `[]` or comment out if you are not using People widget.
 user_groups:
-- Founders
 - Developers
 ---
 
-
+I am a microbiologist and immunologist teaching and researching at Harvard
+University and the Broad Institute. I use computational methods to explore the
+relationships between microbial communities and human disease, and to understand
+complex microbial communities. I also teach about the immune system and
+infectious disease.
