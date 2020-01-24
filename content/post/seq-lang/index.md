@@ -4,7 +4,7 @@
 title: "On the performance and design of BioSequences compared to the Seq language"
 subtitle: ""
 summary: ""
-authors: [admin]
+authors: [admin, jakobnissen]
 tags: []
 categories: []
 date: 2020-01-23T23:01:09Z
@@ -131,9 +131,7 @@ benchmarked tasks, and we wanted to know why. So we profiled their BioJulia code
 to see what BioJulia was taking its sweet time doing. The results for the three
 benchmarks are shown below in **Figure 3**.
 
-![figure3-a](fig3-a.png)
-![figure3-b](fig3-b.png)
-![figure3-c](fig3-c.png)
+![figure3](fig3.png)
 **Figure 3. Barplots showing the fraction of time BioJulia benchmarking code was
 spending doing various sub-tasks, as determined by the built-in Julia Profiler
 tool.**
