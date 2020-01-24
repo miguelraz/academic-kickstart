@@ -4,8 +4,8 @@
 title: "On the performance and design of BioSequences compared to the Seq language"
 subtitle: ""
 summary: ""
-authors: [admin, jakobnissen]
-tags: []
+authors: [jakobnissen, admin]
+tags: [BioSequences, Benchmarking, Seq-Lang, DNA, RNA, Sequences]
 categories: []
 date: 2020-01-23T23:01:09Z
 lastmod: 2020-01-23T23:01:09Z
