@@ -5,7 +5,7 @@ title: "On the performance and design of BioSequences compared to the Seq langua
 subtitle: ""
 summary: ""
 authors: [admin]
-tags: []
+tags: [BioSequences, Benchmarking, Seq-Lang, DNA, RNA, Sequences]
 categories: []
 date: 2020-01-23T23:01:09Z
 lastmod: 2020-01-23T23:01:09Z
