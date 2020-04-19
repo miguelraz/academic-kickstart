@@ -14,17 +14,23 @@ role: BioJulia Developer
 
 # Organizations/Affiliations
 organizations:
-- name: Technical University of Denmark
-  url: "www.dtu.dk"
+- name: Statens Serum Institut
+  url: "www.ssi.dk"
 
 # Short bio (displayed in user profile at end of posts)
-bio: I am a bioinformatician doing my PhD in metagenomic method development at Technical University of Denmark.
+bio: Bioinformatician at Statens Serum Institut working with pandemic influenza genomics
+
+Background:
+- Bachelor's in biology at University of Copenhagen
+- Master's in -omics at University of Southern Denmark / University of Chinese Academy of Sciences
+- PhD in bioinformatics / metagenomics / binning at Technical University of Denmark
 
 Interests:
 - Phylogenetics
 - Models of evolution
 - Next-generation sequencing technology
 - Microbial ecology
+- Virus genomics
 
 # Social/Academic Networking
 # For available icons, see: https://sourcethemes.com/academic/docs/page-builder/#icons
@@ -52,4 +58,4 @@ user_groups:
 - Developers
 ---
 
-I am a bioinformatician doing my PhD in metagenomic method development at Technical University of Denmark.
+I am a bioinformatician at Statens Serum Institut (the Danish center for disease control), where I analyze genome of influenza with the purpose of better understanding pandemic flu.

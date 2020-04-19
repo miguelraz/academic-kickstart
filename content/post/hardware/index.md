@@ -27,6 +27,9 @@ image:
 #   Otherwise, set `projects = []`.
 projects: []
 ---
+
+**Find this notebook at https://github.com/jakobnissen/hardware_introduction**
+
 Programming is used in many fields of science today, where individual scientists often have to write custom code for their own projects. For most scientists, however, computer science is not their field of expertise; They have learned programming by necessity. I count myself as one of them. While we may be reasonably familiar with the *software* side of programming, we rarely have even a basic understanding of how computer *hardware* impacts code performance.
 
 The aim of this tutorial is to give non-professional programmers a *brief* overview of the features of modern hardware that you must understand in order to write fast code. It will be a distillation of what have learned the last few years. This tutorial will use Julia because it allows these relatively low-level considerations to be demonstrated easily in a high-level, interactive language.
@@ -95,8 +98,8 @@ For now, we will work with a simplified mental model of a computer. Through this
 In this simple diagram, the arrows represent data flow in either direction. The diagram shows three important parts of a computer:
 
 * The central processing unit (CPU) is a chip the size of a stamp. This is where all the computation actually occurs, the brain of the computer.
-* Random access memory (RAM, or just "memory") is the short-term memory of the computer. This memory requires electrical power to maintain, and is lost when the computer is shut down. RAM serves as a temporary storage of data between the disk and the CPU. Much of time spent "loading" various applications and operating systems is actually spent moving data from disk to RAM and unpacking it there. A typical consumer laptop has around $10^{11}$ bits of RAM memory.
-* The disk is a mass storage unit. This data on disk persists after power is shut down, so the disk contains the long-term memory of the computer. It is also much cheaper per gigabyte than RAM, with consumer PCs having around $10^{13}$ bits of disk space.
+* Random access memory (RAM, or just "memory") is the short-term memory of the computer. This memory requires electrical power to maintain, and is lost when the computer is shut down. RAM serves as a temporary storage of data between the disk and the CPU. Much of time spent "loading" various applications and operating systems is actually spent moving data from disk to RAM and unpacking it there. A typical consumer laptop has around 10^11 bits of RAM memory.
+* The disk is a mass storage unit. This data on disk persists after power is shut down, so the disk contains the long-term memory of the computer. It is also much cheaper per gigabyte than RAM, with consumer PCs having around 10^13 bits of disk space.
 
 ## Avoid write to disk where possible<a id='disk'></a>
 Even with a fast mass storage unit such as a solid state drive (SSD) or even the newer Optane technology, disks are many times, usually thousands of times, slower than RAM. In particular, *seeks*, i.e. switching to a new point of the disk to read from or write to, is slow. As a consequence, writing a large chunk of data to disk is much faster than writing many small chunks.
@@ -115,7 +118,7 @@ function test_file(path)
         read(file, UInt8)
     end
 end
-@time test_file("../../Mash.jl/src/kmersketch.jl")
+@time test_file("test_file")
 
 # This test may seem weirdly constructed, but I use a Set to force cache misses to compare
 # main RAM (and not cache) with disk.
@@ -131,8 +134,8 @@ end
 @time test_RAM(data);
 ```
 
-      0.011948 seconds (8.10 k allocations: 423.802 KiB)
-      0.009457 seconds (21.35 k allocations: 1.214 MiB)
+      0.014330 seconds (8.10 k allocations: 419.739 KiB)
+      0.009313 seconds (21.35 k allocations: 1.214 MiB)
 
 
 Benchmarking this is a little tricky, because the *first* invokation will include the compilation times of both functions. And in the *second* invokation, your operating system will have stored a copy of the file (or *cached* the file) in RAM, making the file seek almost instant. To time it properly, run it once, then *change the file*, and run it again. So in fact, we should update our computer diagram:
@@ -151,7 +154,7 @@ If you need to read a file byte by byte, for example when parsing a file, great 
 ## CPU cache<a id='cachemisses'></a>
 The RAM is faster than the disk, and the CPU in turn is faster than RAM. A CPU ticks like a clock, with a speed of about 3 GHz, i.e. 3 billion ticks per second. One "tick" of this clock is called a *clock cycle*. While this is not really true, you may imagine that every cycle, the CPU executes a single, simple command called a *CPU instruction* which does one operation on a small piece of data. The clock speed then can serve as a reference for other timings in a computer. It is worth realizing that in a single clock cycle, a photon will travel only around 10 cm, and this puts a barrier to how fast memory (which is placed some distance away from the CPU) can operate. In fact, modern computers are so fast that a significant bottleneck in their speed is the delay caused by the time needed for electricity to move through the wires inside the computer.
 
-On this scale, reading from RAM takes around 100 clock cycles. Similarly to how the slowness of disks can be mitigated by copying data to the faster RAM, data from RAM is copied to a smaller memory chip physically on the CPU, called a *cache*. The cache is faster because it is physically on the CPU chip (reducing wire delays), and because it uses a faster type of RAM, static RAM, instead of the slower (but cheaper to manufacture) dynamic RAM. Because it must be placed on the CPU, limiting its size, and because it is more expensive to produce, a typical CPU cache only contains around $10^8$ bits, around 1000 times less than RAM. There are actually multiple layers of CPU cache, but here we simplify it and just refer to "the cache" as one single thing:
+On this scale, reading from RAM takes around 100 clock cycles. Similarly to how the slowness of disks can be mitigated by copying data to the faster RAM, data from RAM is copied to a smaller memory chip physically on the CPU, called a *cache*. The cache is faster because it is physically on the CPU chip (reducing wire delays), and because it uses a faster type of RAM, static RAM, instead of the slower (but cheaper to manufacture) dynamic RAM. Because it must be placed on the CPU, limiting its size, and because it is more expensive to produce, a typical CPU cache only contains around 10^8 bits, around 1000 times less than RAM. There are actually multiple layers of CPU cache, but here we simplify it and just refer to "the cache" as one single thing:
 
 <br>
 <center><font size=4>
@@ -200,8 +203,8 @@ data = rand(UInt, 0x00000000000fffff);
 @btime random_access(data);
 ```
 
-      631.464 μs (1 allocation: 16 bytes)
-      4.305 ms (1 allocation: 16 bytes)
+      515.471 μs (1 allocation: 16 bytes)
+      6.118 ms (1 allocation: 16 bytes)
 
 
 This also has implications for your data structures. Hash tables such as `Dict`s and `Set`s are inherently cache inefficient and almost always cause cache misses, whereas arrays don't.
@@ -220,7 +223,7 @@ The time wasted can be significant. In a situation where cache misses provides t
 function alignment_test(data::Vector{UInt}, offset::Integer)
     n = zero(UInt)
     mask = length(data) - 8
-    GC.@preserve data begin #### protect the array from moving in memory
+    GC.@preserve data begin # protect the array from moving in memory
         ptr = pointer(data) + (offset & 63)
         for i in 1:1024
             n ⊻= unsafe_load(ptr, (n & mask + 1) % Int)
@@ -237,8 +240,8 @@ data = rand(UInt, 256);
 @btime alignment_test(data, 60);
 ```
 
-      1.858 μs (0 allocations: 0 bytes)
-      3.455 μs (0 allocations: 0 bytes)
+      1.908 μs (0 allocations: 0 bytes)
+      3.453 μs (0 allocations: 0 bytes)
 
 
 The above example is paticularly bad, having a near 2x slowdown.
@@ -253,14 +256,14 @@ memory_address = reinterpret(UInt, pointer(data))
 
 Note that if the beginning of an array is aligned, then it's not possible for 1-, 2-, 4-, or 8-byte objects to straddle cache line boundaries, and everything will be aligned.
 
-It would still be possible for an e.g. 7-byte object to be misaligned in an array. In an array of 7-byte objects, the 10th object would be placed at byte offset $7 \times (10-1) = 63$, and the object would straddle the cache line. However, the compiler usually does not allow struct with a nonstandard size for this reason. If we define a 7-byte struct:
+It would still be possible for an e.g. 7-byte object to be misaligned in an array. In an array of 7-byte objects, the 10th object would be placed at byte offset 7 \* (10-1) = 63, and the object would straddle the cache line. However, the compiler usually does not allow struct with a nonstandard size for this reason. If we define a 7-byte struct:
 
 
 ```julia
 struct AlignmentTest
-    a::UInt32 #### 4 bytes +
-    b::UInt16 #### 2 bytes +
-    c::UInt8  #### 1 byte = 7 bytes?
+    a::UInt32 # 4 bytes +
+    b::UInt16 # 2 bytes +
+    c::UInt8  # 1 byte = 7 bytes?
 end
 ```
 
@@ -525,8 +528,8 @@ data = rand(UInt, 2^10);
 @btime increment!(data);
 ```
 
-      494.222 ns (1 allocation: 8.13 KiB)
-      84.002 ns (0 allocations: 0 bytes)
+      533.022 ns (1 allocation: 8.13 KiB)
+      105.148 ns (0 allocations: 0 bytes)
 
 
 On my computer, the allocating function is about 5x slower. This is due to a few properties of the code:
@@ -583,7 +586,7 @@ We can inspect the code needed to instantiate a `HeapAllocated` object with the 
     	movl	$16, %edx
     	movq	%rax, %rdi
     	callq	*%rcx
-    	movabsq	$4743182800, %rcx       ## imm = 0x11AB739D0
+    	movabsq	$4545567872, %rcx       ## imm = 0x10EEFDC80
     	movq	%rcx, -8(%rax)
     	movq	%rbx, (%rax)
     	popq	%rbx
@@ -621,8 +624,8 @@ data_heap = [HeapAllocated(i.x) for i in data_stack]
 @btime sum(data_heap);
 ```
 
-      265.957 μs (1 allocation: 16 bytes)
-      1.021 ms (1 allocation: 16 bytes)
+      271.102 μs (1 allocation: 16 bytes)
+      1.028 ms (1 allocation: 16 bytes)
 
 
 We can verify that, indeed, the array in the `data_stack` stores the actual data of a `StackAllocated` object, whereas the `data_heap` contains pointers (i.e. memory addresses):
@@ -639,12 +642,12 @@ println("Data at address ", repr(first_data), ": ",
         unsafe_load(Ptr{HeapAllocated}(first_data)))
 ```
 
-    First object of data_stack: StackAllocated(43309)
-    First data in data_stack array: StackAllocated(43309)
+    First object of data_stack: StackAllocated(29174)
+    First data in data_stack array: StackAllocated(29174)
     
-    First object of data_heap: HeapAllocated(43309)
-    First data in data_heap array: 0x000000011a3a5660
-    Data at address 0x000000011a3a5660: HeapAllocated(43309)
+    First object of data_heap: HeapAllocated(29174)
+    First data in data_heap array: 0x000000010cfe15e0
+    Data at address 0x000000010cfe15e0: HeapAllocated(29174)
 
 
 ## Registers and SIMD<a id='simd'></a>
@@ -702,10 +705,12 @@ code_native(+, (typeof(a), typeof(a)), debuginfo=:none)
 
 Here, two 8\*32 bit vectors are added together in one single instruction. You can see the CPU makes use of a single `vpaddd` (vector packed add double) instruction to add 8 32-bit integers, as well as the corresponding move instruction `vmovdqu`. Note that vector CPU instructions begin with `v`.
 
-### Automatic vectorization
+It's worth mentioning the interaction between SIMD and alignment: If a series of 256-bit (32-byte) SIMD loads are misaligned, then up to half the loads could cross cache line boundaries, as opposed to just 1/8th of 8-byte loads. Thus, alignment is a much more serious issue when using SIMD. Since array beginnings are always aligned, this is usually not an issue, but in cases where you are not guaranteed to start from an aligned starting point, such as with matrix operations, this may make a significant difference. In brand new CPUs with 512-bit registers, the issues is even worse as the SIMD size is the same as the cache line size, so *all* loads would be misaligned if the initial load is.
+
 SIMD vectorization of e.g. 64-bit integers may increase throughput by almost 4x, so it is of huge importance in high-performance programming. Compilers will automatically vectorize operations if they can. What can prevent this automatic vectorization?
 
-Because vectorized operations operates on multiple data at once, it is not possible to interrupt the loop at an arbitrary point. For example, if 4 64-bit integers are processed at a time, it is not possible to stop the loop after 3 integers have been processed. Suppose you had a loop like this:
+### SIMD needs uninterrupted iteration of fixed length
+Because vectorized operations operates on multiple data at once, it is not possible to interrupt the loop at an arbitrary point. For example, if 4 64-bit integers are processed in one clock cycle, it is not possible to stop a SIMD loop after 3 integers have been processed. Suppose you had a loop like this:
 
 ```
 for i in 1:8
@@ -718,7 +723,11 @@ end
 
 Here, the loop could end on any iteration due to the break statement. Therefore, any SIMD instruction which loaded in multiple integers could operate on data *after* the loop is supposed to break, i.e. data which is never supposed to be read. This would be wrong behaviour, and so, the compiler cannot use SIMD instructions.
 
-A good rule of thumb is that you should not have any branches (i.e. if-statements) in the loop at all if you want it to SIMD-vectorize. In fact, even boundschecking, i.e. checking that you are not indexing outside the bounds of a vector, causes a branch. After all, if the code is supposed to raise a bounds error after 3 iterations, even a single SIMD operation would be wrong! To achieve SIMD vectorization then, all boundschecks must be disabled. We can use this do demonstrate the impact of SIMD:
+A good rule of thumb is that simd needs:
+* A loop with a predetermined length, so it knows when to stop, and
+* A loop with no branches (i.e. if-statements) in the loop
+
+In fact, even boundschecking, i.e. checking that you are not indexing outside the bounds of a vector, causes a branch. After all, if the code is supposed to raise a bounds error after 3 iterations, even a single SIMD operation would be wrong! To achieve SIMD vectorization then, all boundschecks must be disabled. We can use this do demonstrate the impact of SIMD:
 
 
 ```julia
@@ -749,13 +758,74 @@ data = rand(UInt64, 4096);
 @btime sum_simd(data);
 ```
 
-      2.196 μs (1 allocation: 16 bytes)
-      209.545 ns (1 allocation: 16 bytes)
+      1.532 μs (1 allocation: 16 bytes)
+      202.604 ns (1 allocation: 16 bytes)
 
 
 On my computer, the SIMD code is 10x faster than the non-SIMD code. SIMD alone accounts for only about 4x improvements (since we moved from 64-bits per iteration to 256 bits per iteration). The rest of the gain comes from not spending time checking the bounds and from automatic loop unrolling (explained later), which is also made possible by the `@inbounds` annotation.
 
-It's worth mentioning the interaction between SIMD and alignment: If a series of 256-bit (32-byte) SIMD loads are misaligned, then up to half the loads could cross cache line boundaries, as opposed to just 1/8th of 8-byte loads. Thus, alignment is a much more serious issue when using SIMD. Since array beginnings are always aligned, this is usually not an issue, but in cases where you are not guaranteed to start from an aligned starting point, such as with matrix operations, this may make a significant difference. In brand new CPUs with 512-bit registers, the issues is even worse as the SIMD size is the same as the cache line size, so *all* loads would be misaligned if the initial load is.
+### SIMD needs a loop where loop order doesn't matter
+SIMD can change the order in which elements in an array is processed. If the result of any iteration depends on any previous iteration such that the elements can't be re-ordered, the compiler will usually not SIMD-vectorize. Often when a loop won't auto-vectorize, it's due to subtleties in which data moves around in registers means that there will be some hidden memory dependency between elements in an array.
+
+Imagine we want to sum some 64-bit integers in an array using SIMD. For simplicity, let's say the array has 8 elements, `A`, `B`, `C` ... `H`. In an ordinary non-SIMD loop, the additions would be done like so:
+
+(((((((A + B) + C) + D) + E) + F) + G) + H)
+
+Whereas when loading the integers using SIMD, four 64-bit integers would be loaded into one vector `<A, B, C, D>`, and the other four into another `<E, F, G, H>`. The two vectors would be added: `<A+E, B+F, C+G, D+H>`. After the loop, the four integers in the resulting vector would be added. So other overall order would be:
+
+((((A + E) + (B + F)) + (C + G)) + (D + H))
+
+Perhaps surprisingly, addition of floating point numbers can give different results depending on the order (i.e. float addition is not associative):
+
+
+```julia
+x = eps(1.0) * 0.4
+1.0 + (x + x) == (1.0 + x) + x
+```
+
+
+
+
+    false
+
+
+
+for this reason, float addition will not auto-vectorize:
+
+
+```julia
+data = rand(Float64, 4096)
+@btime sum_nosimd(data)
+@btime sum_simd(data);
+```
+
+      4.458 μs (1 allocation: 16 bytes)
+      4.455 μs (1 allocation: 16 bytes)
+
+
+However, high-performance programming languages usually provide a command to tell the compiler it's alright to re-order the loop, even for non-associative loops. In Julia, this command is the `@simd` macro:
+
+
+```julia
+function sum_simd(x::Vector)
+    n = zero(eltype(x))
+    # Here we add the `@simd` macro to allow SIMD of floats
+    @inbounds @simd for i in eachindex(x)
+        n += x[i]
+    end
+    return n
+end
+
+data = rand(Float64, 4096)
+@btime sum_nosimd(data)
+@btime sum_simd(data);
+```
+
+      4.455 μs (1 allocation: 16 bytes)
+      294.382 ns (1 allocation: 16 bytes)
+
+
+Julia also provides the macro `@simd ivdep` which further tells the compiler that there are no memory-dependencies in the loop order. However, I *strongly discourage* the use of this macro, unless you *really* know what you're doing. In general, the compiler knows best when a loop has memory dependencies, and misuse of `@simd ivdep` can very easily lead to bugs that are hard to detect.
 
 ## Struct of arrays<a id='soa'></a>
 If we create an array containing four `AlignmentTest` objects `A`, `B`, `C` and `D`, the objects will lie end to end in the array, like this:
@@ -791,15 +861,16 @@ Alignment is no longer a problem, no space is wasted on padding. When running th
 ```julia
 Base.rand(::Type{AlignmentTest}) = AlignmentTest(rand(UInt32), rand(UInt16), rand(UInt8))
 
-array_of_structs = [rand(AlignmentTest) for i in 1:1000000]
-struct_of_arrays = AlignmentTestVector(rand(UInt32, 1000000), rand(UInt16, 1000000), rand(UInt8, 1000000));
+N = 1_000_000
+array_of_structs = [rand(AlignmentTest) for i in 1:N]
+struct_of_arrays = AlignmentTestVector(rand(UInt32, N), rand(UInt16, N), rand(UInt8, N));
 
 @btime sum(x -> x.a, array_of_structs)
 @btime sum(struct_of_arrays.a);
 ```
 
-      440.415 μs (1 allocation: 16 bytes)
-      104.039 μs (1 allocation: 16 bytes)
+      443.031 μs (1 allocation: 16 bytes)
+      114.831 μs (1 allocation: 16 bytes)
 
 
 ## Specialized CPU instructions<a id='instructions'></a>
@@ -830,8 +901,8 @@ data = rand(UInt, 10000)
 @btime sum(count_ones, data);
 ```
 
-      267.183 μs (1 allocation: 16 bytes)
-      2.516 μs (1 allocation: 16 bytes)
+      267.451 μs (1 allocation: 16 bytes)
+      2.520 μs (1 allocation: 16 bytes)
 
 
 The timings you observe here will depend on whether your compiler is clever enough to realize that the computation in the first function can be expressed as a `popcnt` instruction, and thus will be compiled to that. On my computer, the compiler is not able to make that inference, and the second function achieves the same result more than 100x faster.
@@ -858,7 +929,7 @@ We can verify it works by checking the assembly of the function, which should co
 ```
 
     	.section	__TEXT,__text,regular,pure_instructions
-    ; ┌ @ In[29]:5 within `aesenc'
+    ; ┌ @ In[32]:5 within `aesenc'
     	vaesenc	%xmm1, %xmm0, %xmm0
     	retq
     	nopw	%cs:(%rax,%rax)
@@ -878,7 +949,7 @@ f() = error()
 ```
 
     	.section	__TEXT,__text,regular,pure_instructions
-    ; ┌ @ In[31]:2 within `f'
+    ; ┌ @ In[34]:2 within `f'
     	pushq	%rax
     	movabsq	$error, %rax
     	callq	*%rax
@@ -937,8 +1008,8 @@ end;
 @btime time_function(inline_poly, data);
 ```
 
-      13.376 μs (1 allocation: 16 bytes)
-      7.213 μs (1 allocation: 16 bytes)
+      13.370 μs (1 allocation: 16 bytes)
+      7.407 μs (1 allocation: 16 bytes)
 
 
 ## Unrolling<a id='unrolling'></a>
@@ -1022,9 +1093,9 @@ We can demonstrate the performance of branch misprediction with a simple functio
 # Copy all odd numbers from src to dst.
 function copy_odds!(dst::Vector{UInt}, src::Vector{UInt})
     write_index = 1
-    @inbounds for i in eachindex(src) #### <--- this branch is trivially easy to predict
+    @inbounds for i in eachindex(src) # <--- this branch is trivially easy to predict
         v = src[i]
-        if isodd(v)  #### <--- this is the branch we want to predict
+        if isodd(v)  # <--- this is the branch we want to predict
             dst[write_index] = v
             write_index += 1
         end
@@ -1043,8 +1114,8 @@ src_all_odd = [2i+1 for i in src_random];
 @btime copy_odds!(dst, src_all_odd);
 ```
 
-      13.139 μs (0 allocations: 0 bytes)
-      2.051 μs (0 allocations: 0 bytes)
+      13.616 μs (0 allocations: 0 bytes)
+      2.105 μs (0 allocations: 0 bytes)
 
 
 In the first case, the integers are random, and about half the branches will be mispredicted causing delays. In the second case, the branch is always taken, the branch predictor is quickly able to pick up the pattern and will reach near 100% correct prediction. As a result, on my computer, the latter is around 6x faster.
@@ -1063,8 +1134,8 @@ src_all_odd = [2i+1 for i in src_random];
 @btime copy_odds!(dst, src_all_odd);
 ```
 
-      82.037 ns (0 allocations: 0 bytes)
-      52.106 ns (0 allocations: 0 bytes)
+      79.932 ns (0 allocations: 0 bytes)
+      53.521 ns (0 allocations: 0 bytes)
 
 
 Because branches are very fast if they are predicted correctly, highly predictable branches caused by error checks are not of much performance concern, assuming that the code essensially never errors. Hence a branch like bounds checking is very fast. You should only remove bounds checks if absolutely maximal performance is critical, or if the bounds check happens in a loop which would otherwise SIMD-vectorize.
@@ -1094,8 +1165,8 @@ src_all_odd = [2i+1 for i in src_random];
 @btime copy_odds!(dst, src_all_odd);
 ```
 
-      2.324 μs (0 allocations: 0 bytes)
-      2.282 μs (0 allocations: 0 bytes)
+      2.344 μs (0 allocations: 0 bytes)
+      2.344 μs (0 allocations: 0 bytes)
 
 
 Which contains no other branches than the one caused by the loop itself (which is easily predictable), and results in speeds somewhat worse than the perfectly predicted one, but much better for random data.
@@ -1157,7 +1228,7 @@ function parallel_sleep(n_jobs)
     return sum(fetch, jobs)
 end
 
-parallel_sleep(1); ##run once to compile it
+parallel_sleep(1); # run once to compile it
 ```
 
 
@@ -1167,10 +1238,10 @@ for njobs in (1, 4, 8, 16)
 end
 ```
 
-      0.624251 seconds (71 allocations: 2.328 KiB)
-      0.584711 seconds (427 allocations: 21.625 KiB)
-      0.618632 seconds (514 allocations: 22.313 KiB)
-      1.311027 seconds (858 allocations: 35.500 KiB)
+      0.628233 seconds (71 allocations: 2.328 KiB)
+      0.606425 seconds (421 allocations: 21.531 KiB)
+      0.875126 seconds (514 allocations: 22.313 KiB)
+      1.666977 seconds (849 allocations: 35.359 KiB)
 
 
 You can see that with this task, my computer can run 8 jobs in parallel almost as fast as it can run 1. But 16 jobs takes much longer.
@@ -1184,7 +1255,7 @@ A prerequisite for efficient use of multithreading is that your computation is a
 
 Let's have an example of a small embarrasingly parallel problem. We want to construct a [Julia set](https://en.wikipedia.org/wiki/Julia_set). Julia sets are named after Gaston Julia, and have nothing to do with the Julia language. Julia sets are (often) fractal sets of complex numbers. By mapping the real and complex component of the set's members to the X and Y pixel value of a screen, one can generate the LSD-trippy images associated with fractals.
 
-The Julia set I create below is defined thus: We define a function $f(z) = z^2 + C$, where $C$ is some constant. We then record the number of times $f$ can be applied to any given complex number $z$ before $|z| > 2$. The number of iterations correspond to the brightness of one pixel in the image. We simply repeat this for a range of real and imaginary values in a grid to create an image.
+The Julia set I create below is defined thus: We define a function `f(z) = z^2 + C`, where `C` is some constant. We then record the number of times `f` can be applied to any given complex number `z` before `abs(z) > 2`. The number of iterations correspond to the brightness of one pixel in the image. We simply repeat this for a range of real and imaginary values in a grid to create an image.
 
 First, let's see a non-parallel solution:
 
@@ -1226,7 +1297,7 @@ end;
 @time M = julia();
 ```
 
-      2.963192 seconds (6 allocations: 23.842 MiB)
+      3.028332 seconds (6 allocations: 23.842 MiB, 0.29% gc time)
 
 
 That took around 3 seconds on my computer. Now for a parallel one:
@@ -1260,7 +1331,7 @@ end;
 @time M = julia();
 ```
 
-      0.438931 seconds (44.30 k allocations: 27.417 MiB)
+      0.451213 seconds (44.28 k allocations: 27.416 MiB)
 
 
 This is almost 7 times as fast! This is close to the best case scenario for 8 threads, only possible for near-perfect embarrasingly parallel tasks.
