@@ -118,7 +118,7 @@ function test_file(path)
         read(file, UInt8)
     end
 end
-@time test_file("test_file")
+@time test_file("testfile")
 
 # This test may seem weirdly constructed, but I use a Set to force cache misses to compare
 # main RAM (and not cache) with disk.
@@ -134,8 +134,8 @@ end
 @time test_RAM(data);
 ```
 
-      0.014330 seconds (8.10 k allocations: 419.739 KiB)
-      0.009313 seconds (21.35 k allocations: 1.214 MiB)
+      0.015056 seconds (8.10 k allocations: 419.880 KiB)
+      0.009527 seconds (21.34 k allocations: 1.214 MiB)
 
 
 Benchmarking this is a little tricky, because the *first* invokation will include the compilation times of both functions. And in the *second* invokation, your operating system will have stored a copy of the file (or *cached* the file) in RAM, making the file seek almost instant. To time it properly, run it once, then *change the file*, and run it again. So in fact, we should update our computer diagram:
@@ -174,27 +174,33 @@ From this information, one can deduce a number of simple tricks to improve perfo
 
 * When reading data from RAM, read it sequentially, such that you mostly have the next data you will be using in cache, instead of in a random order. In fact, modern CPUs will detect if you are reading in data sequentially, and *prefetch* upcoming data, that is, fetching the next chunk while the current chunk is being processed, reducing delays caused by cache misses.
 
-The following example illustrates two simple functions that iterate over a random array, xor'ing the data. The first function iterates linearly over the array. The second instead uses the current result (which is random) to determine the next index, thus it jumps erratically over the array. On my computer, the second function is *more than 10 times slower* than the first.
+The following example illustrates two simple functions. The second, `random_access` begins with a random `n`. It then uses the random `n` to access an index in the array, updating `n`. This way, it jumps randomly around the array, sampling a fixed number of elements.
+
+The first function, `linear_access` do the same computation as `random_access`, but uses `i` instead of `n` to  access the array, so it access the data in a linear fashion. Hence, the only difference is the memory access pattern.
+
+Notice the large discrepency in time spent.
 
 
 ```julia
-function linear_access(data)
-    x = 0
-    for i in eachindex(data)
-        x ⊻= data[i]
+function linear_access(data::Vector{UInt})
+    n = rand(UInt)
+    mask = length(data) - 1
+    for i in 1:4096
+        n = (n >>> 7) ⊻ data[i & mask + 1]
     end
-    x
+    return n
 end
 
-function random_access(data)
-    x = 0
-    for i in eachindex(data)
-        x ⊻= data[x & 0x00000000000fffff + 1]
+function random_access(data::Vector{UInt})
+    n = rand(UInt)
+    mask = length(data) - 1
+    for i in 1:4096
+        n = (n >>> 7) ⊻ data[n & mask + 1]
     end
-    x
+    return n
 end
 
-data = rand(UInt, 0x00000000000fffff);
+data = rand(UInt, 2^22);
 ```
 
 
@@ -203,8 +209,8 @@ data = rand(UInt, 0x00000000000fffff);
 @btime random_access(data);
 ```
 
-      515.471 μs (1 allocation: 16 bytes)
-      6.118 ms (1 allocation: 16 bytes)
+      2.298 μs (0 allocations: 0 bytes)
+      269.256 μs (0 allocations: 0 bytes)
 
 
 This also has implications for your data structures. Hash tables such as `Dict`s and `Set`s are inherently cache inefficient and almost always cause cache misses, whereas arrays don't.
@@ -214,39 +220,53 @@ Many of the optimizations in this document indirectly impact cache use, so this 
 ## Memory alignment<a id='alignment'></a>
 As just mentioned, your CPU will move 512 consecutive bits (64 bytes) to and from main RAM to cache at a time. These 64 bytes are called a *cache line*. Your entire main memory is segmented into cache lines. For example, memory addresses 0 to 63 is one cache line, addresses 64 to 127 is the next, 128 to 191 the next, et cetera. Your CPU may only request one of these cache lines from memory, and not e.g. the 64 bytes from address 30 to 93.
 
-This means that some data structures can straddle the boundaries between cache lines. If I request a 64-bit (8 byte) integer at adress 60, this can cause *two* cache misses, the first to get the 0-63 cache line, and the second to get the 64-127 cache line. Even disregaridng the time-consuming cache misses, the CPU must generate two memory addresses from the single requested memory address, and then retrieve the integer from both cache lines, wasting time.
+This means that some data structures can straddle the boundaries between cache lines. If I request a 64-bit (8 byte) integer at adress 60, the CPU must first generate two memory requests from the single requested memory address (namely to get cache lines 0-63 and 64-127), and then retrieve the integer from both cache lines, wasting time.
 
-The time wasted can be significant. In a situation where cache misses provides the bottleneck, the slowdown can approach 2x. In the following example, I use a pointer to repeatedly access an array at a given offset from a cache line boundary. If the offset is in the range `0:56`, the integers all fit within one single cache line, and the function is fast. If the offset is in `57:63` all integers will straddle cache lines.
+The time wasted can be significant. In a situation where in-cache memory access proves the bottleneck, the slowdown can approach 2x. In the following example, I use a pointer to repeatedly access an array at a given offset from a cache line boundary. If the offset is in the range `0:56`, the integers all fit within one single cache line, and the function is fast. If the offset is in `57:63` all integers will straddle cache lines.
 
 
 ```julia
 function alignment_test(data::Vector{UInt}, offset::Integer)
-    n = zero(UInt)
-    mask = length(data) - 8
+    # Jump randomly around the memory.
+    n = rand(UInt)
+    mask = (length(data) - 9) ⊻ 7
     GC.@preserve data begin # protect the array from moving in memory
-        ptr = pointer(data) + (offset & 63)
-        for i in 1:1024
-            n ⊻= unsafe_load(ptr, (n & mask + 1) % Int)
+        ptr = pointer(data)
+        iszero(UInt(ptr) & 63) || error("Array not aligned")
+        ptr += (offset & 63)
+        for i in 1:4096
+            n = (n >>> 7) ⊻ unsafe_load(ptr, (n & mask + 1) % Int)
         end
     end
     return n
 end
-data = rand(UInt, 256);
+data = rand(UInt, 256 + 8);
 ```
 
 
 ```julia
+@btime alignment_test(data, 0)
+@btime alignment_test(data, 60);
+```
+
+      7.754 μs (0 allocations: 0 bytes)
+      14.365 μs (0 allocations: 0 bytes)
+
+
+In the example above, the short vector easily fit into cache. If we increase the vector size, we will force cache misses. Note that the effect of misalignment is dwarfed by the time wasted on cache misses:
+
+
+```julia
+data = rand(UInt, 1 << 22 + 8)
 @btime alignment_test(data, 10)
 @btime alignment_test(data, 60);
 ```
 
-      1.908 μs (0 allocations: 0 bytes)
-      3.453 μs (0 allocations: 0 bytes)
+      274.305 μs (0 allocations: 0 bytes)
+      321.955 μs (0 allocations: 0 bytes)
 
 
-The above example is paticularly bad, having a near 2x slowdown.
-
-Fortunately, the compiler does a few tricks to make it less likely that you will access misaligned data. First, Julia (and other compiled languages) always places new objects in memory at the boundaries of cache lines. When an object is placed right at the boundary, we say that it is *aligned*. Julia also aligns the beginning of arrays:
+Fortunately, the compiler does a few tricks to make it less likely that you will access misaligned data. First, Julia (and other compiled languages) always places new objects in memory at the boundaries of cache lines. When an object is placed right at the boundary, we say that it is *aligned*. Julia also aligns the beginning of larger arrays:
 
 
 ```julia
@@ -306,158 +326,127 @@ In Julia, we can easily inspect the compiled assembly code using the `code_nativ
 
 ```julia
 # View assembly code generated from this function call
-@code_native linear_access(data)
+function foo(x)
+    s = zero(eltype(x))
+    @inbounds for i in eachindex(x)
+        s = x[i ⊻ s]
+    end
+    return s
+end
+
+# Actually running the function will immediately crash Julia, so don't.
+@code_native foo(data)
 ```
 
     	.section	__TEXT,__text,regular,pure_instructions
-    ; ┌ @ In[3]:3 within `linear_access'
+    ; ┌ @ In[11]:4 within `foo'
     ; │┌ @ abstractarray.jl:212 within `eachindex'
     ; ││┌ @ abstractarray.jl:95 within `axes1'
     ; │││┌ @ abstractarray.jl:75 within `axes'
-    ; ││││┌ @ In[3]:2 within `size'
-    	movq	24(%rsi), %rax
+    ; ││││┌ @ In[11]:3 within `size'
+    	movq	24(%rdi), %rcx
     ; ││││└
     ; ││││┌ @ tuple.jl:139 within `map'
     ; │││││┌ @ range.jl:320 within `OneTo' @ range.jl:311
     ; ││││││┌ @ promotion.jl:412 within `max'
-    	testq	%rax, %rax
+    	testq	%rcx, %rcx
     ; │└└└└└└
-    	jle	L119
-    ; │ @ In[3]:4 within `linear_access'
-    ; │┌ @ array.jl:744 within `getindex'
-    	movq	8(%rsi), %r8
-    	testq	%r8, %r8
-    	je	L131
-    ; │└
-    ; │ @ In[3]:3 within `linear_access'
-    ; │┌ @ abstractarray.jl:212 within `eachindex'
-    ; ││┌ @ abstractarray.jl:95 within `axes1'
-    ; │││┌ @ abstractarray.jl:75 within `axes'
-    ; ││││┌ @ tuple.jl:139 within `map'
-    ; │││││┌ @ range.jl:320 within `OneTo' @ range.jl:311
-    ; ││││││┌ @ promotion.jl:412 within `max'
-    	movq	%rax, %rcx
-    	sarq	$63, %rcx
-    	andnq	%rax, %rcx, %rdx
-    	movq	(%rsi), %r9
-    ; │└└└└└└
-    ; │ @ In[3]:4 within `linear_access'
-    ; │┌ @ array.jl:744 within `getindex'
-    	addq	$-1, %rdx
-    	xorl	%ecx, %ecx
+    	jle	L59
+    	movq	(%rdi), %rdx
+    ; │ @ In[11]:4 within `foo'
+    	negq	%rcx
+    	movl	$1, %esi
     	xorl	%eax, %eax
-    	nopl	(%rax)
+    	nopw	%cs:(%rax,%rax)
+    ; │ @ In[11]:5 within `foo'
+    ; │┌ @ int.jl:874 within `xor' @ int.jl:317
+    L32:
+    	xorq	%rsi, %rax
     ; │└
-    ; │┌ @ int.jl:317 within `xor'
-    L48:
-    	xorq	(%r9,%rcx,8), %rax
+    ; │┌ @ multidimensional.jl:486 within `getindex' @ array.jl:744
+    	movq	-8(%rdx,%rax,8), %rax
     ; │└
     ; │┌ @ range.jl:597 within `iterate'
     ; ││┌ @ promotion.jl:401 within `=='
-    	cmpq	%rcx, %rdx
+    	leaq	(%rcx,%rsi), %rdi
+    	addq	$1, %rdi
     ; │└└
-    	je	L111
-    ; │┌ @ array.jl:744 within `getindex'
-    	addq	$1, %rcx
-    	cmpq	%r8, %rcx
-    	jb	L48
-    	addq	$1, %rcx
-    L70:
-    	pushq	%rbp
-    	movq	%rsp, %rbp
-    ; ││ @ array.jl:744 within `getindex'
-    	movq	%rsp, %rdx
-    	leaq	-16(%rdx), %rax
-    	movq	%rax, %rsp
-    	movq	%rcx, -16(%rdx)
-    	movabsq	$jl_bounds_error_ints, %rcx
-    	movl	$1, %edx
-    	movq	%rsi, %rdi
-    	movq	%rax, %rsi
-    	callq	*%rcx
+    ; │┌ @ int.jl:53 within `iterate'
+    	addq	$1, %rsi
     ; │└
-    ; │ @ In[3]:6 within `linear_access'
-    L111:
-    	movq	%rax, (%rdi)
-    	movb	$2, %dl
-    	xorl	%eax, %eax
+    ; │┌ @ range.jl:597 within `iterate'
+    ; ││┌ @ promotion.jl:401 within `=='
+    	cmpq	$1, %rdi
+    ; │└└
+    	jne	L32
+    ; │ @ In[11]:7 within `foo'
     	retq
-    L119:
-    	movq	$0, (%rdi)
-    	movb	$1, %dl
+    L59:
     	xorl	%eax, %eax
+    ; │ @ In[11]:7 within `foo'
     	retq
-    L131:
-    	movl	$1, %ecx
-    	jmp	L70
-    	nopw	(%rax,%rax)
+    	nop
     ; └
 
 
-Let's break the first 11 lines down:
+Let's break it down:
+
+The lines beginning with `;` are comments, and explain which section of the code the following instructions come from. They show the nested series of function calls, and where in the source code they are. You can see that `eachindex`, calls `axes1`, which calls `axes`, which calls `size`. Under the comment line containing the `size` call, we see the first CPU instruction. The instruction name is on the far left, `movq`. The name is composed of two parts, `mov`, the kind of instruction (to move content to or from a register), and a suffix `q`, short for "quad", which means 64-bit integer. There are the following suffixes:  `b` (byte, 8 bit), `w` (word, 16 bit), `l`, (long, 32 bit) and `q` (quad, 64 bit).
+
+The next two columns in the instruction, `24(%rdi)` and `%rax` are the arguments to `movq`. These are the names of the registers (we will return to registers later) where the data to operate on are stored.
+
+You can also see (in the larger display of assembly code) that the code is segmented into sections beginning with a name starting with "L", for example there's a section `L32`. These sections are jumped between using if-statements, or *branches*. Here, section `L32` marks the actual loop. You can see the following two instructions in the `L32` section:
 
 ```
-	.section	__TEXT,__text,regular,pure_instructions
-; ┌ @ In[3]:3 within `linear_access'
-; │┌ @ abstractarray.jl:212 within `eachindex'
-; ││┌ @ abstractarray.jl:95 within `axes1'
-; │││┌ @ abstractarray.jl:75 within `axes'
-; ││││┌ @ In[3]:2 within `size'
-	movq	24(%rsi), %rax
-; ││││└
-; ││││┌ @ tuple.jl:139 within `map'
-; │││││┌ @ range.jl:320 within `OneTo' @ range.jl:311
-; ││││││┌ @ promotion.jl:412 within `max'
-	testq	%rax, %rax
-; │└└└└└└
+; ││┌ @ promotion.jl:401 within `=='
+	cmpq	$1, %rdi
+; │└└
+	jne	L32
 ```
 
-The lines beginning with `;` are comments, and explain which section of the code the following instructions come from. They show the nested series of function calls, and where in the source code they are. You can see that `linear_access` calls `eachindex`, which calls `axes1`, which calls `axes`, which calls `size` and `map`, etc. Under the comment line containing the `size` call, we see the first CPU instruction. The instruction name is on the far left, `movq`. The name is composed of two parts, `mov`, the kind of instruction (to move content to or from a register), and a suffix `q`, short for "quad", which means 64-bit integer. There are the following suffixes:  `b` (byte, 8 bit), `w` (word, 16 bit), `l`, (long, 32 bit) and `q` (quad, 64 bit).
-
-The next two columns in the instruction, `24(%rsi)` and `%rax` are the arguments to `movq`. These are the names of the registers (we will return to registers later) where the data to operate on are stored.
-
-You can also see (in the larger display of assembly code) that the code is segmented into sections beginning with a name starting with "L", for example the last section `L131`. These sections are jumped between using if-statements, or *branches*. For example, the actual loop is marked with `L48`. You can see the following two instructions in the `L48` section:
-
-```
-    cmpq    %r8, %rcx
-	jb      L48
-```
-The first instruction `cmpq` (compare quad) compares the data in the two registers, which hold the data for the length of the array, and the array index, respectively, and sets certain flags (wires) in the CPU based on the result. The next instruction `jb` (jump if below) makes a jump if the "below" flag is set in the CPU, which happens if the index is lower than the array length. You can see it jumps to `L48`, meaning this section repeat.
+The first instruction `cmpq` (compare quad) compares the data in registry `rdi`, which hold the data for the number of iterations left (plus one), with the number 1, and sets certain flags (wires) in the CPU based on the result. The next instruction `jne` (jump if not equal) makes a jump if the "equal" flag is not set in the CPU, which happens if there is one or more iterations left. You can see it jumps to `L48`, meaning this section repeat.
 
 ### Fast instruction, slow instruction
-Not all CPU instructions are equally fast. Below is a table of selected CPU instructions with *very rough* estimates of how many clock cycles they take to execute.
+Not all CPU instructions are equally fast. Below is a table of selected CPU instructions with *very rough* estimates of how many clock cycles they take to execute. You can find much more detailed tables [in this document](https://www.agner.org/optimize/instruction_tables.pdf). Here, I'll summarize the speed of instructions on modern Intel CPUs. It's very similar for all modern CPUs.
 
-__Fast instructions__ (about 1 clock cycle each)
-```
-and
-or
-bitshifts
-xor
-add integer
-subtract integer
-bitwise invert
-```
+CPUs instructions typically take multiple CPU cycles to complete. However, if an instruction uses different part of the CPU during its execution, the CPU can usually start a new instruction before the old one is finished: If some operation X takes, say 4 clock cycles, they may queue one or even two operations per clock cycle using a feature called [instruction pipelining](https://en.wikipedia.org/wiki/Instruction_pipelining). Hence, instruction X has a *latency* of 4 cycles, meaning it takes 4 cycles for the instruction to complete. But if the CPU can queue a new instruction every single cycle, it can have a *reciprocal throughput* of 1 clock cycle, meaning *on average*, it only takes 1 cycle per operation.
 
-__Somewhat fast instructions__
-```
-float addition (3 cycles)
-multiplication, float or integer (depending on operand size) (5 cycles)
-```
+The following table measures time in clock cycles:
 
-__Slow instructions__
-```
-float divison (25 cycles)
-integer division (30 cycles)
-```
+|Instruction             |Latency|Rec. throughp.|
+|------------------------|-------|--------------|
+|move data               |  1 |  0.25
+|and/or/xor              |  1 |  0.25
+|test/compare            |  1 |  0.25
+|do nothing              |  1 |  0.25
+|int add/subtract        |  1 |  0.25
+|bitshift                |  1 |  0.5
+|float multiplication    |  5 |  0.5
+|vector int and/or/xor   |  1 |  0.5
+|vector int add/sub      |  1 |  0.5
+|vector float add/sub    |  4 |  0.5
+|vector float multiplic. |  5 |  0.5
+|lea                     |  3 |  1
+|int multiplic           |  3 |  1
+|float add/sub           |  3 |  1
+|float multiplic.        |  5 |  1
+|float division          | 15 |  5
+|vector float division   | 13 |  8
+|integer division        | 50 | 40
 
-__As reference__
-```
-read from cache (1-5 cycles)
-read to ram (cache miss) (100 cycles)
-memory allocation (400 cycles)
-```
 
-If you have an inner loop executing millions of times, it may pay off to inspect the generated assembly code for the loop and check if you can express the computation in terms of fast CPU instructions. For example, if you have an integer you know to be 0 or above, and you want to divide it by 8 (discarding any remainder), you can instead do a bitshift:
+The `lea` instruction takes three inputs, A, B and C, where A must be 2, 4, or 8, and calculates AB + C. We'll come back to what the "vector" instructions do later.
+
+For comparison, we may also add some *very rough* estimates of other sources of delays:
+
+|Delay                  |Cycles|
+|-----------------------|----|
+|move memory from cache |     1
+|misaligned memory read |    10
+|cache miss             |   500
+|read from disk         | 35000
+
+If you have an inner loop executing millions of times, it may pay off to inspect the generated assembly code for the loop and check if you can express the computation in terms of fast CPU instructions. For example, if you have an integer you know to be 0 or above, and you want to divide it by 8 (discarding any remainder), you can instead do a bitshift, since bitshifts are way faster than integer division:
 
 
 ```julia
@@ -528,8 +517,8 @@ data = rand(UInt, 2^10);
 @btime increment!(data);
 ```
 
-      533.022 ns (1 allocation: 8.13 KiB)
-      105.148 ns (0 allocations: 0 bytes)
+      495.860 ns (1 allocation: 8.13 KiB)
+      83.932 ns (0 allocations: 0 bytes)
 
 
 On my computer, the allocating function is about 5x slower. This is due to a few properties of the code:
@@ -541,19 +530,26 @@ On my computer, the allocating function is about 5x slower. This is due to a few
 For these reasons, performant code should keep allocations to a minimum. Note that the `@btime` macro prints the number and size of the allocations. This information is given because it is assumed that any programmer who cares to benchmark their code will be interested in reducing allocations.
 
 ### Not all objects need to be allocated
-Inside RAM, data is kept on either the *stack* or the *heap*. The stack is a simple data structure with a beginning and end, similar to a `Vector` in Julia. The stack can only be modified by adding or subtracting elements from the end, analogous to a `Vector` with only the two mutating operations `push!` and `pop!`. These operations on the stack are very fast. When we talk about "allocations", however, we talk about data on the heap. Only the heap gives true random access.
+Inside RAM, data is kept on either the *stack* or the *heap*. The stack is a simple data structure with a beginning and end, similar to a `Vector` in Julia. The stack can only be modified by adding or subtracting elements from the end, analogous to a `Vector` with only the two mutating operations `push!` and `pop!`. These operations on the stack are very fast. When we talk about "allocations", however, we talk about data on the heap. Unlike the stack, the heap has an unlimited size (well, it has the size of your computer's RAM), and can be modified arbitrarily, deleting any objects.
 
-Intuitively, it may seem obvious that all objects need to be placed in RAM, must be able to be retrieved at any time by the program, and therefore need to be allocated on the heap. And for some languages, like Python, this is true. However, this is not true in Julia. Integers, for example, can often be placed on the stack.
+Intuitively, it may seem obvious that all objects need to be placed in RAM, must be able to be retrieved and deleted at any time by the program, and therefore need to be allocated on the heap. And for some languages, like Python, this is true. However, this is not true in Julia and other efficient, compiled languages. Integers, for example, can often be placed on the stack.
 
 Why do some objects need to be heap allocated, while others can be stack allocated? To be stack-allocated, the compiler needs to know for certain that:
 
-* The object is a fixed, predetermined size, and not too big (max tens of bytes). This is needed for technical reasons for the stack to operate.
-* That the object never changes. The CPU is free to copy stack-allocated objects, and for immutable objects, there is no way to distinguish a copy from the original. This bears repeating: *With immutable objects, there is no way to distinguish a copy from the original*. This gives the compiler and the CPU certain freedoms when operating on it.
-* The compiler can predict exactly *when* it needs to access the program so it can reach it by simply popping the stack. This is usually the case in compiled languages.
+* The object is a reasonably small size, so it fits on the stack. This is needed for technical reasons for the stack to operate.
+* The compiler can predict exactly *when* it needs to add and destroy the object so it can destroy it by simply popping the stack (similar to calling `pop!` on a `Vector`). This is usually the case for local variables in compiled languages.
 
-Objects that contain heap-allocated objects have significantly higher overhead in both memory consumption and time spent. In Julia, we have a concept of a *bitstype*, which is an object that recursively contain no heap-allocated objects. Heap allocated objects are objects of types `String`, `Array`, `Ref` and `Symbol`, mutable objects, or objects containing any of the previous. Bitstypes are more performant exactly because they are immutable, fixed in size and can be stack allocated.
+Julia has even more constrains on stack-allocated objects.
+* The object should have a fixed size known at compile time.
+* The compiler must know that object never changes. The CPU is free to copy stack-allocated objects, and for immutable objects, there is no way to distinguish a copy from the original. This bears repeating: *With immutable objects, there is no way to distinguish a copy from the original*. This gives the compiler and the CPU certain freedoms when operating on it.
 
-The latter point is also why objects are immutable by default in Julia, and leads to one other performance tip: Use immutable objects whereever possible.
+In Julia, we have a concept of a *bitstype*, which is an object that recursively contain no heap-allocated objects. Heap allocated objects are objects of types `String`, `Array`, `Ref` and `Symbol`, mutable objects, or objects containing any of the previous. Bitstypes are more performant exactly because they are immutable, fixed in size and can be stack allocated. The latter point is also why objects are immutable by default in Julia, and leads to one other performance tip: Use immutable objects whereever possible.
+
+What does this mean in practise? In Julia, it means if you want fast stack-allocated objects:
+* You object must be created, used and destroyed in a fully compiled function so the compiler knows for certain when it needs to create, use and destroy the object. If the object is returned for later use (and not immediately returned to another, fully compiled function), we say that the object *escapes*, and must be allocated.
+* Your object's type must be a bitstype.
+* Your type must be limited in size. I don't know exactly how large it has to be, but 100 bytes is fine.
+* The exact memory layout of your type must be known by the compiler.
 
 
 ```julia
@@ -576,7 +572,7 @@ We can inspect the code needed to instantiate a `HeapAllocated` object with the 
 ```
 
     	.section	__TEXT,__text,regular,pure_instructions
-    ; ┌ @ In[17]:8 within `HeapAllocated'
+    ; ┌ @ In[18]:8 within `HeapAllocated'
     	pushq	%rbx
     	movq	%rsi, %rbx
     	movabsq	$jl_get_ptls_states_fast, %rax
@@ -586,7 +582,7 @@ We can inspect the code needed to instantiate a `HeapAllocated` object with the 
     	movl	$16, %edx
     	movq	%rax, %rdi
     	callq	*%rcx
-    	movabsq	$4545567872, %rcx       ## imm = 0x10EEFDC80
+    	movabsq	$4609615504, %rcx       ## imm = 0x112C12690
     	movq	%rcx, -8(%rax)
     	movq	%rbx, (%rax)
     	popq	%rbx
@@ -603,7 +599,7 @@ Notice the `callq` instructions in the `HeapAllocated` one. This instruction cal
 ```
 
     	.section	__TEXT,__text,regular,pure_instructions
-    ; ┌ @ In[17]:4 within `StackAllocated'
+    ; ┌ @ In[18]:4 within `StackAllocated'
     	movq	%rsi, %rax
     	retq
     	nopw	%cs:(%rax,%rax)
@@ -624,8 +620,8 @@ data_heap = [HeapAllocated(i.x) for i in data_stack]
 @btime sum(data_heap);
 ```
 
-      271.102 μs (1 allocation: 16 bytes)
-      1.028 ms (1 allocation: 16 bytes)
+      281.676 μs (1 allocation: 16 bytes)
+      1.015 ms (1 allocation: 16 bytes)
 
 
 We can verify that, indeed, the array in the `data_stack` stores the actual data of a `StackAllocated` object, whereas the `data_heap` contains pointers (i.e. memory addresses):
@@ -642,12 +638,12 @@ println("Data at address ", repr(first_data), ": ",
         unsafe_load(Ptr{HeapAllocated}(first_data)))
 ```
 
-    First object of data_stack: StackAllocated(29174)
-    First data in data_stack array: StackAllocated(29174)
+    First object of data_stack: StackAllocated(3693)
+    First data in data_stack array: StackAllocated(3693)
     
-    First object of data_heap: HeapAllocated(29174)
-    First data in data_heap array: 0x000000010cfe15e0
-    Data at address 0x000000010cfe15e0: HeapAllocated(29174)
+    First object of data_heap: HeapAllocated(3693)
+    First data in data_heap array: 0x0000000110cb16a0
+    Data at address 0x0000000110cb16a0: HeapAllocated(3693)
 
 
 ## Registers and SIMD<a id='simd'></a>
@@ -758,8 +754,8 @@ data = rand(UInt64, 4096);
 @btime sum_simd(data);
 ```
 
-      1.532 μs (1 allocation: 16 bytes)
-      202.604 ns (1 allocation: 16 bytes)
+      2.198 μs (1 allocation: 16 bytes)
+      200.598 ns (1 allocation: 16 bytes)
 
 
 On my computer, the SIMD code is 10x faster than the non-SIMD code. SIMD alone accounts for only about 4x improvements (since we moved from 64-bits per iteration to 256 bits per iteration). The rest of the gain comes from not spending time checking the bounds and from automatic loop unrolling (explained later), which is also made possible by the `@inbounds` annotation.
@@ -799,8 +795,8 @@ data = rand(Float64, 4096)
 @btime sum_simd(data);
 ```
 
-      4.458 μs (1 allocation: 16 bytes)
-      4.455 μs (1 allocation: 16 bytes)
+      4.339 μs (1 allocation: 16 bytes)
+      4.339 μs (1 allocation: 16 bytes)
 
 
 However, high-performance programming languages usually provide a command to tell the compiler it's alright to re-order the loop, even for non-associative loops. In Julia, this command is the `@simd` macro:
@@ -821,8 +817,8 @@ data = rand(Float64, 4096)
 @btime sum_simd(data);
 ```
 
-      4.455 μs (1 allocation: 16 bytes)
-      294.382 ns (1 allocation: 16 bytes)
+      4.342 μs (1 allocation: 16 bytes)
+      297.430 ns (1 allocation: 16 bytes)
 
 
 Julia also provides the macro `@simd ivdep` which further tells the compiler that there are no memory-dependencies in the loop order. However, I *strongly discourage* the use of this macro, unless you *really* know what you're doing. In general, the compiler knows best when a loop has memory dependencies, and misuse of `@simd ivdep` can very easily lead to bugs that are hard to detect.
@@ -861,7 +857,7 @@ Alignment is no longer a problem, no space is wasted on padding. When running th
 ```julia
 Base.rand(::Type{AlignmentTest}) = AlignmentTest(rand(UInt32), rand(UInt16), rand(UInt8))
 
-N = 1_000_000
+N  = 1_000_000
 array_of_structs = [rand(AlignmentTest) for i in 1:N]
 struct_of_arrays = AlignmentTestVector(rand(UInt32, N), rand(UInt16, N), rand(UInt8, N));
 
@@ -869,8 +865,8 @@ struct_of_arrays = AlignmentTestVector(rand(UInt32, N), rand(UInt16, N), rand(UI
 @btime sum(struct_of_arrays.a);
 ```
 
-      443.031 μs (1 allocation: 16 bytes)
-      114.831 μs (1 allocation: 16 bytes)
+      444.546 μs (1 allocation: 16 bytes)
+      113.006 μs (1 allocation: 16 bytes)
 
 
 ## Specialized CPU instructions<a id='instructions'></a>
@@ -901,8 +897,8 @@ data = rand(UInt, 10000)
 @btime sum(count_ones, data);
 ```
 
-      267.451 μs (1 allocation: 16 bytes)
-      2.520 μs (1 allocation: 16 bytes)
+      267.495 μs (1 allocation: 16 bytes)
+      2.475 μs (1 allocation: 16 bytes)
 
 
 The timings you observe here will depend on whether your compiler is clever enough to realize that the computation in the first function can be expressed as a `popcnt` instruction, and thus will be compiled to that. On my computer, the compiler is not able to make that inference, and the second function achieves the same result more than 100x faster.
@@ -929,7 +925,7 @@ We can verify it works by checking the assembly of the function, which should co
 ```
 
     	.section	__TEXT,__text,regular,pure_instructions
-    ; ┌ @ In[32]:5 within `aesenc'
+    ; ┌ @ In[33]:5 within `aesenc'
     	vaesenc	%xmm1, %xmm0, %xmm0
     	retq
     	nopw	%cs:(%rax,%rax)
@@ -949,7 +945,7 @@ f() = error()
 ```
 
     	.section	__TEXT,__text,regular,pure_instructions
-    ; ┌ @ In[34]:2 within `f'
+    ; ┌ @ In[35]:2 within `f'
     	pushq	%rax
     	movabsq	$error, %rax
     	callq	*%rax
@@ -1008,8 +1004,8 @@ end;
 @btime time_function(inline_poly, data);
 ```
 
-      13.370 μs (1 allocation: 16 bytes)
-      7.407 μs (1 allocation: 16 bytes)
+      13.380 μs (1 allocation: 16 bytes)
+      7.207 μs (1 allocation: 16 bytes)
 
 
 ## Unrolling<a id='unrolling'></a>
@@ -1075,6 +1071,8 @@ For a total of 7 instructions per 4 additions, or 1.75 instructions per addition
 
 Where you can see it is both unrolled by a factor of four, and uses 256-bit SIMD instructions, for a total of 128 bytes, 16 integers added per iteration, or 0.44 instructions per integer.
 
+Notice also that the compiler chooses to use 4 different `ymm` SIMD registers, `ymm0` to `ymm3`, whereas in my example assembly code, I just used one register `rax`. This is because, if you use 4 independent registers, then you don't need to wait for one `vpaddq` to complete (remember, it had a ~3 clock cycle latency) before the CPU can begin the next.
+
 ## Branch prediction<a id='branches'></a>
 When a CPU executes instructions, every instruction needs to go through multiple steps, classically the three "fetch", "decode" and "execute" steps, each taking one clock cycle or more. Thus, a CPU instruction must take multiple clock cycles. However, the steps use different circuits of the CPU, and so while one instruction is being executed, another is being decoded and a third is being fetched. This results in much faster throughput, in theory one instruction per cycle.
 
@@ -1114,8 +1112,8 @@ src_all_odd = [2i+1 for i in src_random];
 @btime copy_odds!(dst, src_all_odd);
 ```
 
-      13.616 μs (0 allocations: 0 bytes)
-      2.105 μs (0 allocations: 0 bytes)
+      13.344 μs (0 allocations: 0 bytes)
+      2.051 μs (0 allocations: 0 bytes)
 
 
 In the first case, the integers are random, and about half the branches will be mispredicted causing delays. In the second case, the branch is always taken, the branch predictor is quickly able to pick up the pattern and will reach near 100% correct prediction. As a result, on my computer, the latter is around 6x faster.
@@ -1134,8 +1132,8 @@ src_all_odd = [2i+1 for i in src_random];
 @btime copy_odds!(dst, src_all_odd);
 ```
 
-      79.932 ns (0 allocations: 0 bytes)
-      53.521 ns (0 allocations: 0 bytes)
+      78.081 ns (0 allocations: 0 bytes)
+      52.160 ns (0 allocations: 0 bytes)
 
 
 Because branches are very fast if they are predicted correctly, highly predictable branches caused by error checks are not of much performance concern, assuming that the code essensially never errors. Hence a branch like bounds checking is very fast. You should only remove bounds checks if absolutely maximal performance is critical, or if the bounds check happens in a loop which would otherwise SIMD-vectorize.
@@ -1165,8 +1163,8 @@ src_all_odd = [2i+1 for i in src_random];
 @btime copy_odds!(dst, src_all_odd);
 ```
 
-      2.344 μs (0 allocations: 0 bytes)
-      2.344 μs (0 allocations: 0 bytes)
+      2.295 μs (0 allocations: 0 bytes)
+      2.341 μs (0 allocations: 0 bytes)
 
 
 Which contains no other branches than the one caused by the loop itself (which is easily predictable), and results in speeds somewhat worse than the perfectly predicted one, but much better for random data.
@@ -1238,10 +1236,10 @@ for njobs in (1, 4, 8, 16)
 end
 ```
 
-      0.628233 seconds (71 allocations: 2.328 KiB)
-      0.606425 seconds (421 allocations: 21.531 KiB)
-      0.875126 seconds (514 allocations: 22.313 KiB)
-      1.666977 seconds (849 allocations: 35.359 KiB)
+      0.599485 seconds (68 allocations: 2.281 KiB)
+      0.591926 seconds (424 allocations: 21.578 KiB)
+      1.108976 seconds (527 allocations: 22.828 KiB)
+      2.109100 seconds (892 allocations: 36.344 KiB)
 
 
 You can see that with this task, my computer can run 8 jobs in parallel almost as fast as it can run 1. But 16 jobs takes much longer.
@@ -1297,7 +1295,7 @@ end;
 @time M = julia();
 ```
 
-      3.028332 seconds (6 allocations: 23.842 MiB, 0.29% gc time)
+      3.018632 seconds (6 allocations: 23.842 MiB, 0.28% gc time)
 
 
 That took around 3 seconds on my computer. Now for a parallel one:
@@ -1331,7 +1329,7 @@ end;
 @time M = julia();
 ```
 
-      0.451213 seconds (44.28 k allocations: 27.416 MiB)
+      0.452954 seconds (44.30 k allocations: 27.417 MiB)
 
 
 This is almost 7 times as fast! This is close to the best case scenario for 8 threads, only possible for near-perfect embarrasingly parallel tasks.
@@ -1352,3 +1350,5 @@ GPUs have sacrificed many of the bells and whistles of CPUs covered in this docu
 Unfortunately, the laptop I'm writing this document on has only integrated graphics, and there is not yet a stable way to interface with integrated graphics using Julia, so I cannot show examples.
 
 There are also more esoteric chips like TPUs (explicitly designed for low-precision tensor operations common in deep learning) and ASICs (an umbrella term for highly specialized chips intended for one single application). At the time of writing, these chips are uncommon, expensive, poorly supported and have limited uses, and are therefore not of any interest for non-computer science researchers.
+
+_Thanks to Chris Elrod for reviewing this for correctness and teaching me a thing or two about computers_
