@@ -1,6 +1,6 @@
 +++
 title = "Community"
-
+weight = 5  # Order that this section will appear.
 +++
 
 Please take a moment to read the [Julia Community Standards](https://julialang.org/community/standards/).
