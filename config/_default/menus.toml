@@ -9,29 +9,34 @@
   weight = 1
 
 [[main]]
+  name = "Software Packages"
+  url = "https://juliahub.com/ui/Packages?q=BioJulia"
+  weight = 2
+
+[[main]]
   name = "Posts"
   url = "#posts"
-  weight = 2
+  weight = 3
 
 [[main]]
   name = "People"
   url = "#people"
-  weight = 3
+  weight = 4
 
 [[main]]
   name = "Community"
   url = "#community"
-  weight = 4
+  weight = 5
 
 [[main]]
   name = "Support BioJulia"
   url = "#support"
-  weight = 5
+  weight = 6
 
 [[main]]
   name = "Related Organizations"
   url = "#related-organizations"
-  weight = 6
+  weight = 7
 
 # Link to a PDF of your resume/CV from the menu.
 # To enable, copy your resume/CV to `static/files/cv.pdf` and uncomment the lines below.
