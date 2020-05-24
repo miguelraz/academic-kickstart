@@ -11,7 +11,7 @@ respects these standards.
 
 ### GitHub
 
-We use GitHub for the development of BioJulia itself. GitHub is where you will
+We use the [BioJulia GitHub organization](https://github.com/BioJulia) for the development of BioJulia itself. GitHub is where you will
 find our source code, tracked issues, and the pull-requests. The discussions
 there should be on topic and technical. For support and user questions, please
 use the [Forum](#Forum) or [Chat](#Chat) channels below.
