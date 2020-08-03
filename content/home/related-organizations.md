@@ -4,7 +4,7 @@ weight = 7  # Order that this section will appear.
 +++
 
 If you are interested in medicine, health care, and public health, check out the
-JuliaHealth organization:
+[JuliaHealth organization](https://juliahealth.org):
 * Website: [https://juliahealth.org](https://juliahealth.org)
 * GitHub: [https://github.com/JuliaHealth](https://github.com/JuliaHealth)
 
