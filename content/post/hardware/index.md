@@ -28,6 +28,8 @@ image:
 projects: []
 ---
 
+## NOTE: This version of the document is outdated! Find the current version at https://viralinstruction.com/posts/hardware/
+
 **Find this notebook at https://github.com/jakobnissen/hardware_introduction**
 
 Programming is used in many fields of science today, where individual scientists often have to write custom code for their own projects. For most scientists, however, computer science is not their field of expertise; They have learned programming by necessity. I count myself as one of them. While we may be reasonably familiar with the *software* side of programming, we rarely have even a basic understanding of how computer *hardware* impacts code performance.
