@@ -1,6 +1,6 @@
 ---
 # Display name
-name: Ben J. Ward
+name: Sabrina Jaye Ward
 
 # Username (this should match the folder name)
 authors:
@@ -46,7 +46,7 @@ education:
 social:
 - icon: envelope
   icon_pack: fas
-  link: 'mailto:benjward@protonmail.com'  # For a direct email link, use "mailto:test@example.org".
+  link: 'mailto:sabrinajward@protonmail.com'  # For a direct email link, use "mailto:test@example.org".
 #- icon: twitter
 #  icon_pack: fab
 #  link: https://twitter.com/GeorgeCushen
@@ -55,7 +55,7 @@ social:
 #  link: https://scholar.google.co.uk/citations?user=sIwtMXoAAAAJ
 - icon: github
   icon_pack: fab
-  link: https://github.com/BenJWard
+  link: https://github.com/SabrinaJaye
 # Link to a PDF of your resume/CV from the About widget.
 # To enable, copy your resume/CV to `static/files/cv.pdf` and uncomment the lines below.
 # - icon: cv
@@ -63,7 +63,7 @@ social:
 #   link: files/cv.pdf
 
 # Enter email to display Gravatar (if Gravatar enabled in Config)
-email: "benjward@protonmail.com"
+email: "sabrinajward@protonmail.com"
 
 # Organizational groups that you belong to (for People widget)
 #   Set this to `[]` or comment out if you are not using People widget.
